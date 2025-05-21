@@ -1,4 +1,5 @@
-import { PrismaClient, Contact } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import type { Contact as ContactType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -22,7 +23,7 @@ interface ContactResponse {
 export async function resolveContact(params: ResolveContactParams): Promise<{ contact: ContactResponse }> {
   const { email, phoneNumber } = params;
 
-  const contacts = await prisma.contact.findMany({
+  const contacts: ContactType[] = await prisma.contact.findMany({
     where: {
       OR: [
         email ? { email } : undefined,
@@ -51,7 +52,7 @@ export async function resolveContact(params: ResolveContactParams): Promise<{ co
     };
   }
 
-  const primaryContact = contacts.find(c => c.linkPrecedence === LinkPrecedence.PRIMARY) ?? contacts[0];
+  const primaryContact: ContactType = contacts.find(c => c.linkPrecedence === LinkPrecedence.PRIMARY) ?? contacts[0];
 
   const emailsSet = new Set<string>();
   const phoneNumbersSet = new Set<string>();
