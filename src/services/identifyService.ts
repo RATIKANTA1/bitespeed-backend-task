@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import type { Contact as ContactType } from '@prisma/client';
+import type { Contact as ContactType } from '.prisma/client';
 
 
 const prisma = new PrismaClient();
