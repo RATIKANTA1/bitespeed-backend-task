@@ -20,9 +20,12 @@ interface ContactResponse {
   secondaryContactIds: number[];
 }
 
-export async function resolveContact(params: ResolveContactParams): Promise<{ contact: ContactResponse }> {
+export async function resolveContact(
+  params: ResolveContactParams
+): Promise<{ contact: ContactResponse }> {
   const { email, phoneNumber } = params;
 
+  // Find existing contacts matching either email or phoneNumber
   const contacts: ContactType[] = await prisma.contact.findMany({
     where: {
       OR: [
@@ -33,6 +36,7 @@ export async function resolveContact(params: ResolveContactParams): Promise<{ co
     orderBy: { createdAt: 'asc' },
   });
 
+  // If no contact exists, create a primary contact
   if (contacts.length === 0) {
     const newContact = await prisma.contact.create({
       data: {
@@ -52,7 +56,10 @@ export async function resolveContact(params: ResolveContactParams): Promise<{ co
     };
   }
 
-  const primaryContact: ContactType = contacts.find(c => c.linkPrecedence === LinkPrecedence.PRIMARY) ?? contacts[0];
+  // Find the primary contact (oldest one with linkPrecedence=PRIMARY or default to first)
+  const primaryContact: ContactType =
+    contacts.find((c) => c.linkPrecedence === LinkPrecedence.PRIMARY) ??
+    contacts[0];
 
   const emailsSet = new Set<string>();
   const phoneNumbersSet = new Set<string>();
@@ -69,6 +76,7 @@ export async function resolveContact(params: ResolveContactParams): Promise<{ co
   const incomingEmailExists = email ? emailsSet.has(email) : true;
   const incomingPhoneExists = phoneNumber ? phoneNumbersSet.has(phoneNumber) : true;
 
+  // If new email/phone doesn’t exist, create a secondary contact
   if (!incomingEmailExists || !incomingPhoneExists) {
     const newSecondary = await prisma.contact.create({
       data: {
