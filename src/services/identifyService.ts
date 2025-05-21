@@ -1,10 +1,10 @@
-import { PrismaClient, Contact as ContactType } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 export enum LinkPrecedence {
-  PRIMARY = "primary",
-  SECONDARY = "secondary",
+  PRIMARY = 'primary',
+  SECONDARY = 'secondary',
 }
 
 interface ResolveContactParams {
@@ -24,24 +24,21 @@ export async function resolveContact(
 ): Promise<{ contact: ContactResponse }> {
   const { email, phoneNumber } = params;
 
-  // Step 1: Prepare OR conditions for Prisma
-  const orConditions = [
-    email ? { email } : null,
-    phoneNumber ? { phoneNumber } : null,
-  ].filter(Boolean);
-
-  // Step 2: Fetch all related contacts
+  // 1. Fetch all matching contacts
   const contacts = await prisma.contact.findMany({
     where: {
-      OR: orConditions.length > 0 ? (orConditions as any) : undefined,
+      OR: [
+        email ? { email } : undefined,
+        phoneNumber ? { phoneNumber } : undefined,
+      ].filter(Boolean) as any,
     },
     orderBy: {
       createdAt: 'asc',
     },
   });
 
-  // Step 3: If no match, create new primary contact
   if (contacts.length === 0) {
+    // 2. No existing contact, create new primary
     const newContact = await prisma.contact.create({
       data: {
         email,
@@ -60,35 +57,49 @@ export async function resolveContact(
     };
   }
 
-  // Step 4: Determine root primary contact
-  const primaryContact = contacts.find(c => c.linkPrecedence === LinkPrecedence.PRIMARY) ?? contacts[0];
+  // 3. Find the oldest primary contact
+  const primaryContacts = contacts.filter(c => c.linkPrecedence === LinkPrecedence.PRIMARY);
+  const rootPrimary = primaryContacts.length > 0 ? primaryContacts[0] : contacts[0];
 
-  let rootPrimary = primaryContact;
-
-  if (primaryContact.linkedId) {
-    const linked = await prisma.contact.findUnique({ where: { id: primaryContact.linkedId } });
-    if (linked) {
-      rootPrimary = linked;
-    }
+  // 4. Update other primary contacts to secondary
+  for (const contact of primaryContacts.slice(1)) {
+    await prisma.contact.update({
+      where: { id: contact.id },
+      data: {
+        linkPrecedence: LinkPrecedence.SECONDARY,
+        linkedId: rootPrimary.id,
+      },
+    });
   }
 
-  const emailsSet = new Set<string>();
-  const phoneNumbersSet = new Set<string>();
+  // 5. Fetch all linked contacts including the root primary and secondaries
+  const allLinkedContacts = await prisma.contact.findMany({
+    where: {
+      OR: [
+        { id: rootPrimary.id },
+        { linkedId: rootPrimary.id },
+      ],
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  // 6. Collect all emails, phones, and secondary contact IDs
+  const emails = new Set<string>();
+  const phoneNumbers = new Set<string>();
   const secondaryContactIds: number[] = [];
 
-  for (const contact of contacts) {
-    if (contact.email) emailsSet.add(contact.email);
-    if (contact.phoneNumber) phoneNumbersSet.add(contact.phoneNumber);
+  for (const contact of allLinkedContacts) {
+    if (contact.email) emails.add(contact.email);
+    if (contact.phoneNumber) phoneNumbers.add(contact.phoneNumber);
     if (contact.id !== rootPrimary.id) {
       secondaryContactIds.push(contact.id);
     }
   }
 
-  // Step 5: Create secondary contact if input email or phone is new
-  const incomingEmailExists = email ? emailsSet.has(email) : true;
-  const incomingPhoneExists = phoneNumber ? phoneNumbersSet.has(phoneNumber) : true;
+  // 7. If this email or phone is new, add as secondary
+  const alreadyExists = [...emails].includes(email || '') && [...phoneNumbers].includes(phoneNumber || '');
 
-  if (!incomingEmailExists || !incomingPhoneExists) {
+  if (!alreadyExists) {
     const newSecondary = await prisma.contact.create({
       data: {
         email,
@@ -97,16 +108,17 @@ export async function resolveContact(
         linkedId: rootPrimary.id,
       },
     });
+
+    if (email) emails.add(email);
+    if (phoneNumber) phoneNumbers.add(phoneNumber);
     secondaryContactIds.push(newSecondary.id);
-    if (email) emailsSet.add(email);
-    if (phoneNumber) phoneNumbersSet.add(phoneNumber);
   }
 
   return {
     contact: {
       primaryContactId: rootPrimary.id,
-      emails: Array.from(emailsSet),
-      phoneNumbers: Array.from(phoneNumbersSet),
+      emails: [...emails],
+      phoneNumbers: [...phoneNumbers],
       secondaryContactIds,
     },
   };
