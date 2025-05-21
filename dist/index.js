@@ -4,11 +4,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
+const identify_1 = __importDefault(require("./routes/identify"));
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
-app.get('/', (_req, res) => {
-    res.send('Server is running 🚀');
-});
-app.listen(3000, () => {
-    console.log('Server running at http://localhost:3000');
+app.use('/api/identify', identify_1.default);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(` Server is running on port ${PORT}`);
 });
